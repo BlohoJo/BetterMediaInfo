@@ -58,6 +58,10 @@ interface AppState {
   // View type
   viewType: ViewType;
 
+  // List view column visibility overrides (field -> visible). Fields that are
+  // missing here fall back to the defaults computed by the List view.
+  listColumnVisibilityModel: Record<string, boolean>;
+
   // Actions
   initConfig: () => Promise<void>;
   initAbout: () => Promise<void>;
@@ -80,6 +84,7 @@ interface AppState {
   setTabAboutStatus: (status: Protocol.ControlStatus) => void;
   setTabSettingsStatus: (status: Protocol.ControlStatus) => void;
   setViewType: (viewType: ViewType) => void;
+  setListColumnVisibilityModel: (model: Record<string, boolean>) => void;
   clearMediaFiles: () => void;
 }
 
@@ -100,6 +105,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   tabAboutStatus: Protocol.ControlStatus.Hidden,
   tabSettingsStatus: Protocol.ControlStatus.Hidden,
   viewType: ViewType.Card,
+  listColumnVisibilityModel: {},
 
   // Actions
   initConfig: async () => {
@@ -197,6 +203,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setTabAboutStatus: (tabAboutStatus) => set({ tabAboutStatus }),
   setTabSettingsStatus: (tabSettingsStatus) => set({ tabSettingsStatus }),
   setViewType: (viewType) => set({ viewType }),
+  setListColumnVisibilityModel: (listColumnVisibilityModel) => set({ listColumnVisibilityModel }),
 
   clearMediaFiles: () => set({
     mediaFiles: [],

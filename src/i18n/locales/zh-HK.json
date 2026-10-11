@@ -42,6 +42,11 @@
     "details": "詳情",
     "delete": "刪除",
     "altNotMediaFiles": "非媒體檔案",
+    "columnsManagement": {
+      "showAllWarning": "您即將新增大量欄，確定要這樣做嗎？要還原預設設定，請按一下 RESET",
+      "yes": "是",
+      "no": "否"
+    },
     "header": {
       "filePath": "檔案路徑",
       "size": "大小",

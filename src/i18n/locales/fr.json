@@ -42,6 +42,11 @@
     "details": "Détails",
     "delete": "Supprimer",
     "altNotMediaFiles": "Pas de fichiers multimédias",
+    "columnsManagement": {
+      "showAllWarning": "Vous êtes sur le point d'ajouter un grand nombre de colonnes. Voulez-vous vraiment continuer ? Pour revenir aux valeurs par défaut, cliquez sur RESET",
+      "yes": "Oui",
+      "no": "Non"
+    },
     "header": {
       "filePath": "Chemin du fichier",
       "size": "Taille",

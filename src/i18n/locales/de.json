@@ -42,6 +42,11 @@
     "details": "Details",
     "delete": "Löschen",
     "altNotMediaFiles": "Keine Mediendateien",
+    "columnsManagement": {
+      "showAllWarning": "Sie sind dabei, eine große Anzahl von Spalten hinzuzufügen. Sind Sie sicher, dass Sie das tun möchten? Um zu den Standardeinstellungen zurückzukehren, klicken Sie auf RESET",
+      "yes": "Ja",
+      "no": "Nein"
+    },
     "header": {
       "filePath": "Dateipfad",
       "size": "Größe",

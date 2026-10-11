@@ -42,6 +42,11 @@
     "details": "詳細",
     "delete": "削除",
     "altNotMediaFiles": "メディアファイルではありません",
+    "columnsManagement": {
+      "showAllWarning": "大量の列を追加しようとしています。よろしいですか？既定の状態に戻すには、RESET をクリックしてください。",
+      "yes": "はい",
+      "no": "いいえ"
+    },
     "header": {
       "filePath": "ファイルパス",
       "size": "サイズ",

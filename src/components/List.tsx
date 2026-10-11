@@ -40,7 +40,7 @@ import {
 } from '@mui/material';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { listen } from '@tauri-apps/api/event';
-import { DataGrid, GridColDef, GridRowsProp, useGridApiRef } from '@mui/x-data-grid';
+import { DataGrid, GridColDef, GridColumnVisibilityModel, GridRowsProp, useGridApiRef } from '@mui/x-data-grid';
 import { useTranslation } from 'react-i18next';
 import ArticleIcon from '@mui/icons-material/Article';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -71,6 +71,30 @@ import {
   OrderByType,
   STREAM_KIND_COLORS,
 } from '../lib/cardTables';
+import ListColumnsManagement, { ListColumnsManagementContext } from './ListColumnsManagement';
+
+// Stream kinds offered by Settings -> Templates, in the same order as the template tabs.
+const TEMPLATE_STREAM_KINDS: Array<{ stream: Protocol.StreamKind; labelKey: string }> = [
+  { stream: Protocol.StreamKind.General, labelKey: 'config.general' },
+  { stream: Protocol.StreamKind.Video, labelKey: 'config.video' },
+  { stream: Protocol.StreamKind.Audio, labelKey: 'config.audio' },
+  { stream: Protocol.StreamKind.Text, labelKey: 'config.text' },
+  { stream: Protocol.StreamKind.Other, labelKey: 'config.other' },
+  { stream: Protocol.StreamKind.Image, labelKey: 'config.image' },
+  { stream: Protocol.StreamKind.Menu, labelKey: 'config.menu' },
+];
+// Some MediaInfo values (e.g. embedded cover data) are huge; only render the beginning of them.
+const TEMPLATE_CELL_MAX_LENGTH = 300;
+const TEMPLATE_COLUMN_MAX_WIDTH = 400;
+// Limit concurrent full-property loads triggered by showing template columns.
+const TEMPLATE_PROPERTIES_LOAD_CONCURRENCY = 4;
+const templateValueCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+interface TemplateColumn {
+  field: string;
+  stream: Protocol.StreamKind;
+  property: string;
+}
 
 const BATCH_MKV_EXTRACT_URL = 'https://github.com/caoccao/BatchMkvExtract';
 const BATCH_MKV_MERGE_URL = 'https://github.com/caoccao/BatchMkvMerge';
@@ -359,11 +383,26 @@ export default function List() {
   const setSelectedDetailFile = useAppStore((state) => state.setSelectedDetailFile);
   const setDialogJsonCode = useAppStore((state) => state.setDialogJsonCode);
   const setDialogNotification = useAppStore((state) => state.setDialogNotification);
+  const mediaFileToAllPropertiesMap = useAppStore((state) => state.mediaFileToAllPropertiesMap);
+  const mediaInfoParameters = useAppStore((state) => state.mediaInfoParameters);
+  const initParameters = useAppStore((state) => state.initParameters);
+  const listColumnVisibilityModel = useAppStore((state) => state.listColumnVisibilityModel);
+  const setListColumnVisibilityModel = useAppStore((state) => state.setListColumnVisibilityModel);
+  const templatePropertiesLoadingRef = useRef<Set<string>>(new Set());
+  const templatePropertiesFailedRef = useRef<Set<string>>(new Set());
 
   const commonPropertiesMap = useMemo(
     () => buildCommonPropertiesMap(config, t),
     [config, t]
   );
+
+  // The template columns are built from the same MediaInfo parameter list that
+  // Settings -> Templates offers as "Available Property".
+  useEffect(() => {
+    if (mediaInfoParameters.length === 0) {
+      initParameters();
+    }
+  }, [mediaInfoParameters.length, initParameters]);
 
   // Debounce query
   useEffect(() => {
@@ -669,7 +708,7 @@ export default function List() {
     });
   }, [fileToPropertyMaps, mediaFileToStreamCountMap]);
 
-  const columnsOfDataGrid = useMemo((): GridColDef[] => {
+  const defaultColumnsOfDataGrid = useMemo((): GridColDef[] => {
     return [...commonPropertiesMap.entries()]
       .flatMap(([stream, commonProperties]) =>
         commonProperties
@@ -690,12 +729,150 @@ export default function List() {
       );
   }, [commonPropertiesMap]);
 
-  const rowsOfDataGrid = useMemo((): GridRowsProp => {
-    return dataOfListView.map((row) => ({
-      id: row.file,
-      ...row,
+  // Every property available in Settings -> Templates, per stream kind, sorted like the
+  // "Available Property" table. Properties that already have a default column are skipped.
+  const templateColumns = useMemo((): TemplateColumn[] => {
+    const usedFields = new Set(defaultColumnsOfDataGrid.map((column) => column.field));
+    return TEMPLATE_STREAM_KINDS.flatMap(({ stream }) =>
+      mediaInfoParameters
+        .filter((parameter) => parameter.stream === stream)
+        .map((parameter) => parameter.property)
+        .sort((a, b) => a.localeCompare(b))
+        .flatMap((property): TemplateColumn[] => {
+          const field = `${stream}:${property}`;
+          if (usedFields.has(field)) {
+            return [];
+          }
+          usedFields.add(field);
+          return [{ field, stream, property }];
+        })
+    );
+  }, [defaultColumnsOfDataGrid, mediaInfoParameters]);
+
+  const templateColumnsOfDataGrid = useMemo((): GridColDef[] => {
+    const streamLabels = new Map(TEMPLATE_STREAM_KINDS.map(({ stream, labelKey }) => [stream, t(labelKey)]));
+    return templateColumns.map(({ field, stream, property }): GridColDef => ({
+      field,
+      headerName: `${streamLabels.get(stream) ?? stream}: ${property}`,
+      align: 'left',
+      headerAlign: 'center',
+      minWidth: 10,
+      maxWidth: TEMPLATE_COLUMN_MAX_WIDTH,
+      sortable: true,
+      type: 'string',
+      valueGetter: (value: any) => value ?? '',
+      valueFormatter: (value: any) => {
+        const text = String(value ?? '');
+        return text.length > TEMPLATE_CELL_MAX_LENGTH
+          ? `${text.slice(0, TEMPLATE_CELL_MAX_LENGTH)}…`
+          : text;
+      },
+      sortComparator: (a: any, b: any) => templateValueCollator.compare(String(a ?? ''), String(b ?? '')),
+      headerClassName: `header-${stream}`,
     }));
-  }, [dataOfListView]);
+  }, [templateColumns, t]);
+
+  // Default columns first, template columns underneath (this is also the order in "Manage columns").
+  const columnsOfDataGrid = useMemo(
+    (): GridColDef[] => [...defaultColumnsOfDataGrid, ...templateColumnsOfDataGrid],
+    [defaultColumnsOfDataGrid, templateColumnsOfDataGrid]
+  );
+
+  // Defaults: the original columns are visible and every template column is hidden.
+  const defaultColumnVisibilityModel = useMemo((): GridColumnVisibilityModel => {
+    const model: GridColumnVisibilityModel = {};
+    templateColumns.forEach(({ field }) => {
+      model[field] = false;
+    });
+    return model;
+  }, [templateColumns]);
+
+  // User choices are kept in the store (so they survive tab switches); fields without a
+  // choice, including template columns that show up later, fall back to the defaults.
+  const columnVisibilityModel = useMemo(
+    (): GridColumnVisibilityModel => ({ ...defaultColumnVisibilityModel, ...listColumnVisibilityModel }),
+    [defaultColumnVisibilityModel, listColumnVisibilityModel]
+  );
+
+  const columnsManagementContextValue = useMemo(
+    () => ({ defaultColumnVisibilityModel }),
+    [defaultColumnVisibilityModel]
+  );
+
+  const handleColumnVisibilityModelChange = useCallback(
+    (model: GridColumnVisibilityModel) => {
+      setListColumnVisibilityModel(model);
+    },
+    [setListColumnVisibilityModel]
+  );
+
+  const visibleTemplateColumns = useMemo(
+    () => templateColumns.filter(({ field }) => columnVisibilityModel[field] !== false),
+    [templateColumns, columnVisibilityModel]
+  );
+  const hasVisibleTemplateColumns = visibleTemplateColumns.length > 0;
+
+  // Template columns need every property of a file, so load them (once per file, cached in the
+  // store and shared with the Details view) only when at least one template column is visible.
+  useEffect(() => {
+    if (!hasVisibleTemplateColumns || viewType !== ViewType.List) {
+      return;
+    }
+    const loading = templatePropertiesLoadingRef.current;
+    const failed = templatePropertiesFailedRef.current;
+    const pending = files.filter(
+      (file) => !mediaFileToAllPropertiesMap.has(file) && !loading.has(file) && !failed.has(file)
+    );
+    if (pending.length === 0) {
+      return;
+    }
+    pending.forEach((file) => loading.add(file));
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < pending.length) {
+        const file = pending[nextIndex];
+        nextIndex += 1;
+        try {
+          const allProperties = await getPropertiesMap(file, null);
+          if (useAppStore.getState().mediaFiles.includes(file)) {
+            setMediaFileAllProperties(file, allProperties);
+          }
+        } catch (error) {
+          failed.add(file);
+          console.error(`Failed to load all properties of ${file}:`, error);
+        } finally {
+          loading.delete(file);
+        }
+      }
+    };
+    for (let i = 0; i < Math.min(TEMPLATE_PROPERTIES_LOAD_CONCURRENCY, pending.length); i += 1) {
+      void worker();
+    }
+  }, [files, hasVisibleTemplateColumns, mediaFileToAllPropertiesMap, setMediaFileAllProperties, viewType]);
+
+  const rowsOfDataGrid = useMemo((): GridRowsProp => {
+    return dataOfListView.map((row) => {
+      const templateValues: Record<string, string> = {};
+      const allProperties = hasVisibleTemplateColumns ? mediaFileToAllPropertiesMap.get(row.file) : undefined;
+      if (allProperties) {
+        const streamToPropertyMap = new Map<Protocol.StreamKind, Record<string, string>>();
+        allProperties
+          .filter((map) => map.num === 0)
+          .forEach((map) => streamToPropertyMap.set(map.stream, map.propertyMap));
+        visibleTemplateColumns.forEach(({ field, stream, property }) => {
+          const value = streamToPropertyMap.get(stream)?.[property];
+          if (value !== undefined) {
+            templateValues[field] = value;
+          }
+        });
+      }
+      return {
+        id: row.file,
+        ...templateValues,
+        ...row,
+      };
+    });
+  }, [dataOfListView, hasVisibleTemplateColumns, mediaFileToAllPropertiesMap, visibleTemplateColumns]);
 
   // Filter rows based on debounced query (searches across all columns)
   const filteredRows = useMemo(() => {
@@ -1076,64 +1253,72 @@ export default function List() {
         )
       ) : (
         <Box sx={{ width: '100%', maxWidth: '100%', overflow: 'auto' }}>
-          <DataGrid
-            apiRef={apiRef}
-            rows={filteredRows}
-            columns={columnsOfDataGrid}
-            density="compact"
-            disableRowSelectionOnClick
-            hideFooter
-            autosizeOnMount
-            autosizeOptions={{
-              includeHeaders: true,
-              includeOutliers: true,
-            }}
-            autoHeight
-            sx={{
-              width: '100%',
-              maxWidth: '100%',
-              '& .MuiDataGrid-columnHeader': {
-                padding: 0,
-              },
-              '& .MuiDataGrid-columnHeaderTitle': {
-                fontSize: '0.875rem',
-                fontWeight: 600,
-              },
-              '& .MuiDataGrid-cell': {
-                fontSize: '0.875rem',
-                whiteSpace: 'nowrap',
-                py: 0.5,
-              },
-              '& .MuiDataGrid-columnHeaders': {
-                minHeight: '36px !important',
-                maxHeight: '36px !important',
-              },
-              '& .MuiDataGrid-row': {
-                minHeight: '32px !important',
-              },
-              '& .MuiDataGrid-virtualScroller': {
+          <ListColumnsManagementContext.Provider value={columnsManagementContextValue}>
+            <DataGrid
+              apiRef={apiRef}
+              rows={filteredRows}
+              columns={columnsOfDataGrid}
+              columnVisibilityModel={columnVisibilityModel}
+              onColumnVisibilityModelChange={handleColumnVisibilityModelChange}
+              slots={{ columnsManagement: ListColumnsManagement }}
+              density="compact"
+              disableRowSelectionOnClick
+              hideFooter
+              autosizeOnMount
+              autosizeOptions={{
+                includeHeaders: true,
+                includeOutliers: true,
+              }}
+              autoHeight
+              sx={{
+                width: '100%',
                 maxWidth: '100%',
-              },
-              [`& .header-${Protocol.StreamKind.General}`]: {
-                bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.General]}20`,
-              },
-              [`& .header-${Protocol.StreamKind.Video}`]: {
-                bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.Video]}20`,
-              },
-              [`& .header-${Protocol.StreamKind.Audio}`]: {
-                bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.Audio]}20`,
-              },
-              [`& .header-${Protocol.StreamKind.Text}`]: {
-                bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.Text]}20`,
-              },
-              [`& .header-${Protocol.StreamKind.Image}`]: {
-                bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.Image]}20`,
-              },
-              [`& .header-${Protocol.StreamKind.Menu}`]: {
-                bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.Menu]}20`,
-              },
-            }}
-          />
+                '& .MuiDataGrid-columnHeader': {
+                  padding: 0,
+                },
+                '& .MuiDataGrid-columnHeaderTitle': {
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                },
+                '& .MuiDataGrid-cell': {
+                  fontSize: '0.875rem',
+                  whiteSpace: 'nowrap',
+                  py: 0.5,
+                },
+                '& .MuiDataGrid-columnHeaders': {
+                  minHeight: '36px !important',
+                  maxHeight: '36px !important',
+                },
+                '& .MuiDataGrid-row': {
+                  minHeight: '32px !important',
+                },
+                '& .MuiDataGrid-virtualScroller': {
+                  maxWidth: '100%',
+                },
+                [`& .header-${Protocol.StreamKind.General}`]: {
+                  bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.General]}20`,
+                },
+                [`& .header-${Protocol.StreamKind.Video}`]: {
+                  bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.Video]}20`,
+                },
+                [`& .header-${Protocol.StreamKind.Audio}`]: {
+                  bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.Audio]}20`,
+                },
+                [`& .header-${Protocol.StreamKind.Text}`]: {
+                  bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.Text]}20`,
+                },
+                [`& .header-${Protocol.StreamKind.Other}`]: {
+                  bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.Other]}20`,
+                },
+                [`& .header-${Protocol.StreamKind.Image}`]: {
+                  bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.Image]}20`,
+                },
+                [`& .header-${Protocol.StreamKind.Menu}`]: {
+                  bgcolor: `${STREAM_KIND_COLORS[Protocol.StreamKind.Menu]}20`,
+                },
+              }}
+            />
+          </ListColumnsManagementContext.Provider>
         </Box>
       )}
       </Box>
