@@ -42,6 +42,11 @@
     "details": "Details",
     "delete": "Delete",
     "altNotMediaFiles": "Not Media Files",
+    "columnsManagement": {
+      "showAllWarning": "You are about to add a large number of columns, are you sure you want to do this? To get back to the defaults, click on RESET",
+      "yes": "Yes",
+      "no": "No"
+    },
     "header": {
       "filePath": "File Path",
       "size": "Size",

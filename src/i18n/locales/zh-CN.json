@@ -42,6 +42,11 @@
     "details": "详情",
     "delete": "删除",
     "altNotMediaFiles": "非媒体文件",
+    "columnsManagement": {
+      "showAllWarning": "您即将添加大量列，确定要这样做吗？要恢复默认设置，请点击 RESET",
+      "yes": "是",
+      "no": "否"
+    },
     "header": {
       "filePath": "文件路径",
       "size": "大小",

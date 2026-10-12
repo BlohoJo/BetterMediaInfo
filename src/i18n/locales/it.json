@@ -42,6 +42,11 @@
     "details": "Dettagli",
     "delete": "Elimina",
     "altNotMediaFiles": "Non file multimediali",
+    "columnsManagement": {
+      "showAllWarning": "Stai per aggiungere un gran numero di colonne. Sei sicuro di volerlo fare? Per tornare alle impostazioni predefinite, fai clic su RESET",
+      "yes": "Sì",
+      "no": "No"
+    },
     "header": {
       "filePath": "Percorso file",
       "size": "Dimensione",
