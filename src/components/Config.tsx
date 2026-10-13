@@ -1877,6 +1877,9 @@ export default function Config() {
         showImage: detailViewShowImage,
         showMenu: detailViewShowMenu,
       },
+      // The List view is configured from the List view itself, not from Settings; keep
+      // whatever is in the store so saving Settings never wipes the saved columns.
+      list: config?.view?.list ?? { columnVisibility: {}, columnOrder: [], columnWidths: {} },
     },
     update: { checkInterval: updateCheckInterval, lastChecked: config?.update?.lastChecked ?? 0, lastVersion: config?.update?.lastVersion ?? '', ignoreVersion: config?.update?.ignoreVersion ?? '' },
     window: config?.window ?? { position: { x: -1, y: -1 }, size: { width: 1200, height: 900 } },
@@ -3358,6 +3361,7 @@ export default function Config() {
             <MenuItem value={Protocol.UpdateCheckInterval.Daily}>{t('config.daily')}</MenuItem>
             <MenuItem value={Protocol.UpdateCheckInterval.Weekly}>{t('config.weekly')}</MenuItem>
             <MenuItem value={Protocol.UpdateCheckInterval.Monthly}>{t('config.monthly')}</MenuItem>
+            <MenuItem value={Protocol.UpdateCheckInterval.Never}>{t('config.never')}</MenuItem>
           </Select>
         </FormControl>
       </Box>

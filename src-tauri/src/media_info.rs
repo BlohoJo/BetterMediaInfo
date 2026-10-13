@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::os::raw;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 use std::usize;
 use widestring::WideCString;
 
@@ -42,6 +43,36 @@ type mi_wchar = u16;
 type mi_wchar = u32;
 
 const DEFAULT_OPTION_VALUE: &str = "";
+
+/// MediaInfo.dll is not safe to call from several threads at the same time: the library keeps
+/// process wide state (its configuration, the parser registry and a number of internal caches)
+/// that is shared by every handle. Calling `MediaInfo_New` / `MediaInfo_Open` / `MediaInfo_Get` /
+/// `MediaInfo_Delete` concurrently makes it read memory that another thread is freeing, which
+/// surfaces as `EXCEPTION_ACCESS_VIOLATION (0xC0000005)` inside `MediaInfo.dll` and kills the
+/// whole process.
+///
+/// Every access to the native library therefore has to be serialized through this lock. The
+/// lock is intentionally **not** taken inside the thin FFI wrappers below (they would make it
+/// re-entrant); callers acquire it once for a whole "open file, read properties, close file"
+/// sequence via [`lock_media_info`].
+static MEDIA_INFO_LOCK: Mutex<()> = Mutex::new(());
+
+/// Acquires the global MediaInfo lock.
+///
+/// A panic while the lock is held poisons it. Losing access to MediaInfo for the rest of the
+/// session would be worse than carrying on, so the poison flag is cleared instead of propagated.
+///
+/// The guard must be kept alive for as long as the native handles are used:
+///
+/// ```ignore
+/// let _guard = lock_media_info();
+/// let media_info_file = MediaInfoFile::new(path);
+/// // ... read properties ...
+/// // the file (and its handle) is dropped before the guard
+/// ```
+pub fn lock_media_info() -> MutexGuard<'static, ()> {
+  MEDIA_INFO_LOCK.lock().unwrap_or_else(|error| error.into_inner())
+}
 
 unsafe extern "C" {
   fn MediaInfo_New() -> *mut mi_void;
@@ -332,25 +363,30 @@ pub struct MediaInfoFile {
 
 impl MediaInfoFile {
   pub fn new(path: &Path) -> Self {
+    Self::try_new(path).expect("Failed to open the media file.")
+  }
+
+  /// Opens a media file without panicking.
+  ///
+  /// The caller must hold the lock returned by [`lock_media_info`] for as long as the returned
+  /// value is alive. A corrupted or unreadable file used to panic inside the Tauri command
+  /// thread, which both poisoned the MediaInfo lock and aborted the whole batch of files; an
+  /// error is returned instead so the UI can skip that single file.
+  pub fn try_new(path: &Path) -> Result<Self> {
     let media_info = MediaInfo::new();
-    media_info
-      .setOption(MediaInfoSetOption::CharSet, "UTF-8")
-      .expect("Failed to set charset to utf-8.");
-    media_info
-      .setOption(MediaInfoSetOption::Locale, "zh-CN")
-      .expect("Failed to set locale.");
-    media_info.open(&path).expect("Failed to open video file.");
-    let streams = Stream::parse(
-      media_info
-        .getOption(MediaInfoGetOption::InfoParameters)
-        .expect(format!("Failed to get {:?}.", MediaInfoGetOption::InfoParameters).as_str()),
-    );
+    media_info.setOption(MediaInfoSetOption::CharSet, "UTF-8")?;
+    media_info.setOption(MediaInfoSetOption::Locale, "zh-CN")?;
+    let error_code = media_info.open(&path)?;
+    if error_code == 0 {
+      return Err(anyhow!("Failed to open {}.", path.to_string_lossy()));
+    }
+    let streams = Stream::parse(media_info.getOption(MediaInfoGetOption::InfoParameters)?);
     let path = path.to_path_buf();
-    Self {
+    Ok(Self {
       media_info,
       path,
       streams,
-    }
+    })
   }
 }
 

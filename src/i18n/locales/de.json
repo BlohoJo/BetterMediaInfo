@@ -23,7 +23,7 @@
     "welcomeTitle": "Willkommen bei BetterMediaInfo",
     "welcomeSubtitle": "Eine moderne Desktop-GUI zur Analyse von Mediendateien.",
     "introBetterMediaInfo": "Analysieren Sie jede Mediendatei mit einer schnellen, modernen Oberfläche. Sehen Sie Streams, Eigenschaften und Metadaten für Video-, Audio-, Bild- und Untertitelspuren auf einen Blick.",
-    "introBatchMkvMerge": "Verarbeiten Sie Mediendateien benutzerfreundlich im Stapel. Eine GUI f\u00fcr mkvmerge aus MKVToolNix.",
+    "introBatchMkvMerge": "Verarbeiten Sie Mediendateien benutzerfreundlich im Stapel. Eine GUI für mkvmerge aus MKVToolNix.",
     "introBatchMkvExtract": "Extrahieren Sie Spuren, Kapitel und Anhänge aus vielen .mkv-Dateien gleichzeitig. Eine stapelorientierte GUI für mkvextract aus MKVToolNix.",
     "introBDMaster": "Untersuchen Sie Blu-ray-Discs mit einer modernen GUI. Durchsuchen Sie Discs, Wiedergabelisten, Streams, Spuren und Bitratendiagramme auf einen Blick.",
     "viewOnGithub": "Auf GitHub ansehen",
@@ -43,9 +43,13 @@
     "delete": "Löschen",
     "altNotMediaFiles": "Keine Mediendateien",
     "columnsManagement": {
-      "showAllWarning": "Sie sind dabei, eine große Anzahl von Spalten hinzuzufügen. Sind Sie sicher, dass Sie das tun möchten? Um zu den Standardeinstellungen zurückzukehren, klicken Sie auf RESET",
+      "showAllWarning": "Sie sind dabei, eine große Anzahl von Spalten hinzuzufügen. Sind Sie sicher, dass Sie das tun möchten? Um zu den Standardeinstellungen zurückzukehren, klicken Sie auf RESET ALL",
       "yes": "Ja",
-      "no": "Nein"
+      "no": "Nein",
+      "resetAll": "Alles zurücksetzen",
+      "resetOrder": "Reihenfolge zurücksetzen",
+      "moveUp": "Nach oben",
+      "moveDown": "Nach unten"
     },
     "header": {
       "filePath": "Dateipfad",
@@ -77,6 +81,9 @@
       "channels": "CH",
       "sampling": "Abtastrate",
       "mode": "Modus"
+    },
+    "columnMenu": {
+      "autosizeAll": "Alle Spaltenüberschriften automatisch anpassen"
     }
   },
   "details": {
@@ -210,7 +217,8 @@
     "checkNewVersion": "Neue Version prüfen",
     "daily": "Täglich",
     "weekly": "Wöchentlich",
-    "monthly": "Monatlich"
+    "monthly": "Monatlich",
+    "never": "Nie"
   },
   "extract": {
     "header": {
@@ -362,12 +370,14 @@
   "about": {
     "tagline": "Eine moderne Desktop-Oberfläche für MediaInfo",
     "mediaInfoLib": "MediaInfoLib",
-    "author": "Autor",
+    "author": "Ursprünglicher Autor",
     "github": "Github",
     "allStreams": "Alle Streams",
     "property": "Eigenschaft",
     "id": "ID",
-    "stream": "Stream"
+    "stream": "Stream",
+    "fork": "Fork",
+    "forkGithub": "Fork auf Github"
   },
   "update": {
     "newVersionAvailable": "Eine neue Version {{version}} ist verfügbar.",

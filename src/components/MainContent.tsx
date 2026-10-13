@@ -41,6 +41,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import Editor from '@monaco-editor/react';
 import * as Protocol from '../lib/protocol';
 import { useAppStore } from '../lib/store';
+import { FORK_RELEASES_URL } from '../lib/constants';
 import { scanFiles } from '../lib/fs';
 import { getUpdateResult, getBDStatus, getBDMasterStatus, openBDMaster, skipVersion, writeTextFile } from '../lib/service';
 import { openSaveJsonCodeFileDialog } from '../lib/dialog';
@@ -435,7 +436,7 @@ export default function MainContent() {
             <Link
               component="button"
               variant="body2"
-              onClick={() => openUrl('https://github.com/caoccao/BetterMediaInfo/releases')}
+              onClick={() => openUrl(FORK_RELEASES_URL)}
               sx={{ cursor: 'pointer' }}
             >
               {t('update.newVersionAvailable', { version: newVersion })}

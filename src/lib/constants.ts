@@ -19,3 +19,10 @@ export const APP_NAME = "BetterMediaInfo";
 export const AUTHOR_NAME = "Sam Cao";
 export const AUTHOR_URL = "https://github.com/caoccao";
 export const GITHUB_URL = "https://github.com/caoccao/BetterMediaInfo";
+
+// This build is a fork. Updates are checked against the fork, never against the upstream
+// repository, so the application cannot auto-update back to the original version.
+export const FORK_AUTHOR_NAME = "BlohoJo";
+export const FORK_AUTHOR_URL = "https://github.com/BlohoJo";
+export const FORK_GITHUB_URL = "https://github.com/BlohoJo/BetterMediaInfo";
+export const FORK_RELEASES_URL = `${FORK_GITHUB_URL}/releases`;

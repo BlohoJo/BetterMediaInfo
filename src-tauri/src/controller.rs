@@ -46,6 +46,9 @@ pub type ChildMap = Arc<Mutex<HashMap<String, Child>>>;
 pub type CancelMap = Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>;
 
 static ALL_STREAMS: Lazy<Vec<Stream>> = Lazy::new(|| {
+  // Reading the parameter list goes through MediaInfo.dll, so it has to be serialized with
+  // every other call. Nothing else may hold the lock while this `Lazy` is initialized.
+  let _guard = lock_media_info();
   let media_info = MediaInfo::new();
   let info_parameters = media_info
     .getOption(MediaInfoGetOption::InfoParameters)
@@ -100,7 +103,7 @@ pub async fn capture_ffmpeg_frame(file: String, position_seconds: f64, max_width
 pub fn check_for_updates() -> Result<UpdateCheckResult> {
   let app_version = get_app_version();
   log::info!("Checking for updates. Current version: {}", app_version);
-  let resp = ureq::get("https://api.github.com/repos/caoccao/BetterMediaInfo/releases")
+  let resp = ureq::get("https://api.github.com/repos/BlohoJo/BetterMediaInfo/releases")
     .set("User-Agent", APP_NAME)
     .call()
     .map_err(|e| anyhow::anyhow!("Failed to fetch releases: {}", e))?;
@@ -125,8 +128,12 @@ pub fn check_for_updates() -> Result<UpdateCheckResult> {
 }
 
 pub async fn get_about() -> Result<About> {
-  let media_info = MediaInfo::new();
-  let media_info_version = media_info.getOption(MediaInfoGetOption::InfoVersion)?;
+  let media_info_version = tokio::task::spawn_blocking(|| -> Result<String> {
+    let _guard = lock_media_info();
+    let media_info = MediaInfo::new();
+    media_info.getOption(MediaInfoGetOption::InfoVersion)
+  })
+  .await??;
   let app_version = env!("CARGO_PKG_VERSION").to_owned();
   Ok(About {
     app_version,
@@ -237,10 +244,10 @@ pub async fn get_parameters() -> Result<Vec<Parameter>> {
 }
 
 pub async fn get_properties(file: String, properties: Option<Vec<StreamProperty>>) -> Result<Vec<StreamPropertyMap>> {
-  let path = Path::new(file.as_str());
-  validate_path_as_file(path)?;
-  let media_info_file = MediaInfoFile::new(path);
-  let mut stream_property_maps: Vec<StreamPropertyMap> = Vec::new();
+  validate_path_as_file(Path::new(file.as_str()))?;
+  // `ALL_PROPERTIES_MAP` lazily initializes `ALL_STREAMS`, which calls into MediaInfo and takes
+  // the global lock. It therefore has to be resolved *before* the lock is acquired below,
+  // otherwise the non re-entrant mutex would dead-lock on the very first call.
   let properties_map = match properties {
     Some(properties) => {
       let mut properties_map: HashMap<MediaInfoStreamKind, Vec<String>> = HashMap::new();
@@ -255,52 +262,65 @@ pub async fn get_properties(file: String, properties: Option<Vec<StreamProperty>
     }
     None => ALL_PROPERTIES_MAP.clone(),
   };
-  for stream_kind in properties_map.keys() {
-    let stream_count = media_info_file.media_info.getCountByStreamKind(*stream_kind) as i32;
-    if stream_count > 0 {
-      for parameters in properties_map.get(&stream_kind).iter() {
-        for num in 0..stream_count {
-          let mut property_map: HashMap<String, String> = HashMap::new();
-          for parameter in parameters.iter() {
-            let stream = Stream::new(stream_kind.clone(), parameter.to_owned());
-            let value = stream.get(&media_info_file.media_info, num as usize)?;
-            if !value.is_empty() {
-              property_map.insert(parameter.to_owned(), value);
+  // Parsing a media file is blocking and CPU bound; keep it off the async runtime threads and
+  // serialize it with every other MediaInfo call.
+  tokio::task::spawn_blocking(move || -> Result<Vec<StreamPropertyMap>> {
+    let path = Path::new(file.as_str());
+    let _guard = lock_media_info();
+    let media_info_file = MediaInfoFile::try_new(path)?;
+    let mut stream_property_maps: Vec<StreamPropertyMap> = Vec::new();
+    for stream_kind in properties_map.keys() {
+      let stream_count = media_info_file.media_info.getCountByStreamKind(*stream_kind) as i32;
+      if stream_count > 0 {
+        for parameters in properties_map.get(&stream_kind).iter() {
+          for num in 0..stream_count {
+            let mut property_map: HashMap<String, String> = HashMap::new();
+            for parameter in parameters.iter() {
+              let stream = Stream::new(stream_kind.clone(), parameter.to_owned());
+              let value = stream.get(&media_info_file.media_info, num as usize)?;
+              if !value.is_empty() {
+                property_map.insert(parameter.to_owned(), value);
+              }
             }
+            stream_property_maps.push(StreamPropertyMap {
+              stream: stream_kind.clone(),
+              num,
+              property_map,
+            })
           }
-          stream_property_maps.push(StreamPropertyMap {
-            stream: stream_kind.clone(),
-            num,
-            property_map,
-          })
         }
       }
     }
-  }
-  stream_property_maps.sort_by(|a, b| {
-    let ordering = a.stream.cmp(&b.stream);
-    if ordering == Ordering::Equal {
-      a.num.cmp(&b.num)
-    } else {
-      ordering
-    }
-  });
-  Ok(stream_property_maps)
+    stream_property_maps.sort_by(|a, b| {
+      let ordering = a.stream.cmp(&b.stream);
+      if ordering == Ordering::Equal {
+        a.num.cmp(&b.num)
+      } else {
+        ordering
+      }
+    });
+    Ok(stream_property_maps)
+  })
+  .await?
 }
 
 pub async fn get_stream_count(file: String) -> Result<Vec<StreamCount>> {
-  let path = Path::new(file.as_str());
-  validate_path_as_file(path)?;
-  let media_info_file = MediaInfoFile::new(path);
-  let mut stream_counts = Vec::new();
-  for stream_kind in MediaInfoStreamKind::values() {
-    let stream_count = media_info_file.media_info.getCountByStreamKind(*stream_kind) as i32;
-    stream_counts.push(StreamCount {
-      stream: *stream_kind,
-      count: stream_count,
-    });
-  }
-  Ok(stream_counts)
+  validate_path_as_file(Path::new(file.as_str()))?;
+  tokio::task::spawn_blocking(move || -> Result<Vec<StreamCount>> {
+    let path = Path::new(file.as_str());
+    let _guard = lock_media_info();
+    let media_info_file = MediaInfoFile::try_new(path)?;
+    let mut stream_counts = Vec::new();
+    for stream_kind in MediaInfoStreamKind::values() {
+      let stream_count = media_info_file.media_info.getCountByStreamKind(*stream_kind) as i32;
+      stream_counts.push(StreamCount {
+        stream: *stream_kind,
+        count: stream_count,
+      });
+    }
+    Ok(stream_counts)
+  })
+  .await?
 }
 
 pub async fn get_update_result(result: &Arc<Mutex<Option<UpdateCheckResult>>>) -> Option<UpdateCheckResult> {

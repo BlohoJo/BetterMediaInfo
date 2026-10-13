@@ -124,15 +124,24 @@ export interface ConfigDetailView {
   showMenu: boolean;
 }
 
+/** Persisted List view state: which columns are shown, in which order and how wide. */
+export interface ConfigListView {
+  columnVisibility: Record<string, boolean>;
+  columnOrder: string[];
+  columnWidths: Record<string, number>;
+}
+
 export interface ConfigView {
   card: ConfigCardView;
   detail: ConfigDetailView;
+  list: ConfigListView;
 }
 
 export enum UpdateCheckInterval {
   Daily = "Daily",
   Weekly = "Weekly",
   Monthly = "Monthly",
+  Never = "Never",
 }
 
 export interface ConfigUpdate {

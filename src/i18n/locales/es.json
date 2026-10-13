@@ -43,9 +43,13 @@
     "delete": "Eliminar",
     "altNotMediaFiles": "No son archivos multimedia",
     "columnsManagement": {
-      "showAllWarning": "Está a punto de añadir una gran cantidad de columnas. ¿Está seguro de que desea hacerlo? Para volver a los valores predeterminados, haga clic en RESET",
+      "showAllWarning": "Está a punto de añadir una gran cantidad de columnas. ¿Está seguro de que desea hacerlo? Para volver a los valores predeterminados, haga clic en RESET ALL",
       "yes": "Sí",
-      "no": "No"
+      "no": "No",
+      "resetAll": "Restablecer todo",
+      "resetOrder": "Restablecer orden",
+      "moveUp": "Subir",
+      "moveDown": "Bajar"
     },
     "header": {
       "filePath": "Ruta del archivo",
@@ -77,6 +81,9 @@
       "channels": "CH",
       "sampling": "Muestreo",
       "mode": "Modo"
+    },
+    "columnMenu": {
+      "autosizeAll": "Ajustar automáticamente todas las columnas"
     }
   },
   "details": {
@@ -210,7 +217,8 @@
     "checkNewVersion": "Comprobar nueva versión",
     "daily": "Diario",
     "weekly": "Semanal",
-    "monthly": "Mensual"
+    "monthly": "Mensual",
+    "never": "Nunca"
   },
   "extract": {
     "header": {
@@ -362,12 +370,14 @@
   "about": {
     "tagline": "Una GUI de escritorio moderna para MediaInfo",
     "mediaInfoLib": "MediaInfoLib",
-    "author": "Autor",
+    "author": "Autor original",
     "github": "Github",
     "allStreams": "Todos los flujos",
     "property": "Propiedad",
     "id": "ID",
-    "stream": "Flujo"
+    "stream": "Flujo",
+    "fork": "Fork",
+    "forkGithub": "Fork en Github"
   },
   "update": {
     "newVersionAvailable": "Una nueva versión {{version}} está disponible.",

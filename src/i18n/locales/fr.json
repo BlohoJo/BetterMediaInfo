@@ -23,7 +23,7 @@
     "welcomeTitle": "Bienvenue dans BetterMediaInfo",
     "welcomeSubtitle": "Une interface de bureau moderne pour inspecter les fichiers multimédias.",
     "introBetterMediaInfo": "Inspectez n'importe quel fichier multimédia avec une interface rapide et moderne. Consultez les flux, propriétés et métadonnées des pistes vidéo, audio, image et sous-titres en un coup d'œil.",
-    "introBatchMkvMerge": "Traitez vos fichiers m\u00e9dias par lots de mani\u00e8re conviviale. Une interface graphique au-dessus de mkvmerge de MKVToolNix.",
+    "introBatchMkvMerge": "Traitez vos fichiers médias par lots de manière conviviale. Une interface graphique au-dessus de mkvmerge de MKVToolNix.",
     "introBatchMkvExtract": "Extrayez des pistes, chapitres et pièces jointes de nombreux fichiers .mkv à la fois. Une interface par lots au-dessus de mkvextract de MKVToolNix.",
     "introBDMaster": "Inspectez les disques Blu-ray avec une interface moderne. Parcourez disques, listes de lecture, flux, pistes et graphiques de débit en un coup d'œil.",
     "viewOnGithub": "Voir sur GitHub",
@@ -43,9 +43,13 @@
     "delete": "Supprimer",
     "altNotMediaFiles": "Pas de fichiers multimédias",
     "columnsManagement": {
-      "showAllWarning": "Vous êtes sur le point d'ajouter un grand nombre de colonnes. Voulez-vous vraiment continuer ? Pour revenir aux valeurs par défaut, cliquez sur RESET",
+      "showAllWarning": "Vous êtes sur le point d'ajouter un grand nombre de colonnes. Voulez-vous vraiment continuer ? Pour revenir aux valeurs par défaut, cliquez sur RESET ALL",
       "yes": "Oui",
-      "no": "Non"
+      "no": "Non",
+      "resetAll": "Tout réinitialiser",
+      "resetOrder": "Réinitialiser l'ordre",
+      "moveUp": "Monter",
+      "moveDown": "Descendre"
     },
     "header": {
       "filePath": "Chemin du fichier",
@@ -77,6 +81,9 @@
       "channels": "CH",
       "sampling": "Échantillonnage",
       "mode": "Mode"
+    },
+    "columnMenu": {
+      "autosizeAll": "Ajuster automatiquement toutes les colonnes"
     }
   },
   "details": {
@@ -210,7 +217,8 @@
     "checkNewVersion": "Vérifier nouvelle version",
     "daily": "Quotidien",
     "weekly": "Hebdomadaire",
-    "monthly": "Mensuel"
+    "monthly": "Mensuel",
+    "never": "Jamais"
   },
   "extract": {
     "header": {
@@ -362,12 +370,14 @@
   "about": {
     "tagline": "Une interface de bureau moderne pour MediaInfo",
     "mediaInfoLib": "MediaInfoLib",
-    "author": "Auteur",
+    "author": "Auteur original",
     "github": "Github",
     "allStreams": "Tous les flux",
     "property": "Propriété",
     "id": "ID",
-    "stream": "Flux"
+    "stream": "Flux",
+    "fork": "Fork",
+    "forkGithub": "Fork sur Github"
   },
   "update": {
     "newVersionAvailable": "Une nouvelle version {{version}} est disponible.",

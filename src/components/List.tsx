@@ -40,7 +40,14 @@ import {
 } from '@mui/material';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { listen } from '@tauri-apps/api/event';
-import { DataGrid, GridColDef, GridColumnVisibilityModel, GridRowsProp, useGridApiRef } from '@mui/x-data-grid';
+import {
+  DataGrid,
+  GridColDef,
+  GridColumnResizeParams,
+  GridColumnVisibilityModel,
+  GridRowsProp,
+  useGridApiRef,
+} from '@mui/x-data-grid';
 import { useTranslation } from 'react-i18next';
 import ArticleIcon from '@mui/icons-material/Article';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -72,6 +79,7 @@ import {
   STREAM_KIND_COLORS,
 } from '../lib/cardTables';
 import ListColumnsManagement, { ListColumnsManagementContext } from './ListColumnsManagement';
+import ListColumnMenu, { LIST_AUTOSIZE_OPTIONS } from './ListColumnMenu';
 
 // Stream kinds offered by Settings -> Templates, in the same order as the template tabs.
 const TEMPLATE_STREAM_KINDS: Array<{ stream: Protocol.StreamKind; labelKey: string }> = [
@@ -88,6 +96,9 @@ const TEMPLATE_CELL_MAX_LENGTH = 300;
 const TEMPLATE_COLUMN_MAX_WIDTH = 400;
 // Limit concurrent full-property loads triggered by showing template columns.
 const TEMPLATE_PROPERTIES_LOAD_CONCURRENCY = 4;
+// Limit concurrent MediaInfo calls when the listed files are loaded. MediaInfo.dll is not
+// thread safe, so flooding it with one call per file is what made it crash on large folders.
+const COMMON_PROPERTIES_LOAD_CONCURRENCY = 4;
 const templateValueCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 interface TemplateColumn {
@@ -388,8 +399,18 @@ export default function List() {
   const initParameters = useAppStore((state) => state.initParameters);
   const listColumnVisibilityModel = useAppStore((state) => state.listColumnVisibilityModel);
   const setListColumnVisibilityModel = useAppStore((state) => state.setListColumnVisibilityModel);
+  const listColumnOrder = useAppStore((state) => state.listColumnOrder);
+  const setListColumnOrder = useAppStore((state) => state.setListColumnOrder);
+  const listColumnWidths = useAppStore((state) => state.listColumnWidths);
+  const setListColumnWidths = useAppStore((state) => state.setListColumnWidths);
+  const resetListColumns = useAppStore((state) => state.resetListColumns);
   const templatePropertiesLoadingRef = useRef<Set<string>>(new Set());
   const templatePropertiesFailedRef = useRef<Set<string>>(new Set());
+  const commonPropertiesLoadingRef = useRef<Set<string>>(new Set());
+  const commonPropertiesFailedRef = useRef<Set<string>>(new Set());
+  // True while the automatic auto-sizing runs, so that the widths it produces are not
+  // mistaken for widths the user asked for.
+  const autoSizingRef = useRef(false);
 
   const commonPropertiesMap = useMemo(
     () => buildCommonPropertiesMap(config, t),
@@ -598,54 +619,88 @@ export default function List() {
     };
   }, [reloadFileProperties]);
 
-  // Load file properties on mount and file changes
+  // Load the stream counts and the common properties of the listed files.
+  //
+  // MediaInfo.dll is not thread safe and opening dozens of files at once used to crash it with
+  // an access violation, so the files are processed by a small pool of workers instead of all
+  // at once. The refs below remember which files are already being loaded (or have failed) so
+  // that a re-render never starts the same IPC call twice: the previous implementation fired
+  // one call per file on every store update, which grew quadratically with the file count.
   useEffect(() => {
-    const loadFileProperties = async (file: string) => {
-      // Get stream count first
-      let streamCountMap: Map<Protocol.StreamKind, Protocol.StreamCount>;
-      const existingStreamCount = mediaFileToStreamCountMap.get(file);
-      
-      if (existingStreamCount) {
-        streamCountMap = existingStreamCount;
-      } else {
-        try {
-          streamCountMap = await getStreamCountMap(file);
-          setMediaFileStreamCount(file, streamCountMap);
-        } catch (error) {
-          setDialogNotification({
-            title: error as string,
-            type: Protocol.DialogNotificationType.Error,
-          });
-          return;
-        }
+    const pending = files.filter((file) => {
+      if (commonPropertiesLoadingRef.current.has(file)
+        || commonPropertiesFailedRef.current.has(file)) {
+        return false;
       }
+      const state = useAppStore.getState();
+      return !state.mediaFileToStreamCountMap.has(file)
+        || !state.mediaFileToCommonPropertyMap.has(file);
+    });
+    if (pending.length === 0) {
+      return;
+    }
+    pending.forEach((file) => commonPropertiesLoadingRef.current.add(file));
 
-      // Get common properties if not loaded
-      if (!mediaFileToCommonPropertyMap.has(file)) {
-        const properties = [...commonPropertiesMap.entries()]
-          .filter(([stream]) => (streamCountMap.get(stream)?.count ?? 0) > 0)
-          .flatMap(([stream, propertyFormats]) =>
-            propertyFormats
-              .filter((prop) => !prop.virtual)
-              .map((prop) => ({ stream, property: prop.name }))
-          );
+    // One notification per batch is enough; a broken folder would otherwise raise hundreds.
+    let notified = false;
+    const notifyOnce = (error: unknown) => {
+      if (notified) {
+        return;
+      }
+      notified = true;
+      setDialogNotification({
+        title: String(error),
+        type: Protocol.DialogNotificationType.Error,
+      });
+    };
 
-        if (properties.length > 0) {
-          try {
-            const commonPropertyMap = await getPropertiesMap(file, properties);
-            setMediaFileCommonProperties(file, commonPropertyMap);
-          } catch (error) {
-            setDialogNotification({
-              title: error as string,
-              type: Protocol.DialogNotificationType.Error,
-            });
-          }
+    const loadFileProperties = async (file: string) => {
+      let streamCountMap = useAppStore.getState().mediaFileToStreamCountMap.get(file);
+      if (!streamCountMap) {
+        streamCountMap = await getStreamCountMap(file);
+        setMediaFileStreamCount(file, streamCountMap);
+      }
+      if (useAppStore.getState().mediaFileToCommonPropertyMap.has(file)) {
+        return;
+      }
+      const streamCounts = streamCountMap;
+      const properties = [...commonPropertiesMap.entries()]
+        .filter(([stream]) => (streamCounts.get(stream)?.count ?? 0) > 0)
+        .flatMap(([stream, propertyFormats]) =>
+          propertyFormats
+            .filter((property) => !property.virtual)
+            .map((property) => ({ stream, property: property.name }))
+        );
+      if (properties.length === 0) {
+        return;
+      }
+      setMediaFileCommonProperties(file, await getPropertiesMap(file, properties));
+    };
+
+    let index = 0;
+    const runWorker = async (): Promise<void> => {
+      while (index < pending.length) {
+        const file = pending[index];
+        index += 1;
+        try {
+          await loadFileProperties(file);
+        } catch (error) {
+          commonPropertiesFailedRef.current.add(file);
+          notifyOnce(error);
+        } finally {
+          commonPropertiesLoadingRef.current.delete(file);
         }
       }
     };
-
-    files.forEach(loadFileProperties);
-  }, [files, mediaFileToStreamCountMap, mediaFileToCommonPropertyMap, setMediaFileStreamCount, setMediaFileCommonProperties, setDialogNotification]);
+    const workerCount = Math.min(COMMON_PROPERTIES_LOAD_CONCURRENCY, pending.length);
+    void Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  }, [
+    files,
+    commonPropertiesMap,
+    setDialogNotification,
+    setMediaFileCommonProperties,
+    setMediaFileStreamCount,
+  ]);
 
   // Load CLI arguments
   useEffect(() => {
@@ -772,11 +827,58 @@ export default function List() {
     }));
   }, [templateColumns, t]);
 
-  // Default columns first, template columns underneath (this is also the order in "Manage columns").
-  const columnsOfDataGrid = useMemo(
+  // Default columns first, template columns underneath. This is the order "Reset Order"
+  // restores and the order new columns are inserted into.
+  const allColumnsOfDataGrid = useMemo(
     (): GridColDef[] => [...defaultColumnsOfDataGrid, ...templateColumnsOfDataGrid],
     [defaultColumnsOfDataGrid, templateColumnsOfDataGrid]
   );
+
+  const defaultFieldOrder = useMemo(
+    () => allColumnsOfDataGrid.map((column) => column.field),
+    [allColumnsOfDataGrid]
+  );
+
+  // The persisted order, sanitized: fields that no longer exist are dropped and fields that
+  // showed up later (e.g. template properties of a newly loaded file) are appended.
+  const effectiveColumnOrder = useMemo((): string[] => {
+    if (listColumnOrder.length === 0) {
+      return defaultFieldOrder;
+    }
+    const existing = new Set(defaultFieldOrder);
+    const order = listColumnOrder.filter((field) => existing.has(field));
+    const placed = new Set(order);
+    defaultFieldOrder.forEach((field) => {
+      if (!placed.has(field)) {
+        order.push(field);
+      }
+    });
+    return order;
+  }, [defaultFieldOrder, listColumnOrder]);
+
+  // Stores a new order, collapsing it back to "no customization" when it is the default one.
+  const applyColumnOrder = useCallback(
+    (order: string[]) => {
+      const isDefault = order.length === defaultFieldOrder.length
+        && order.every((field, index) => field === defaultFieldOrder[index]);
+      setListColumnOrder(isDefault ? [] : order);
+    },
+    [defaultFieldOrder, setListColumnOrder]
+  );
+
+  // The columns handed to the grid: in the user's order and with the user's widths. A column
+  // the user sized explicitly must not flex any more, or the grid would stretch it again.
+  const columnsOfDataGrid = useMemo((): GridColDef[] => {
+    const columnByField = new Map(allColumnsOfDataGrid.map((column) => [column.field, column]));
+    return effectiveColumnOrder.flatMap((field): GridColDef[] => {
+      const column = columnByField.get(field);
+      if (!column) {
+        return [];
+      }
+      const width = listColumnWidths[field];
+      return [width ? { ...column, width, flex: undefined } : column];
+    });
+  }, [allColumnsOfDataGrid, effectiveColumnOrder, listColumnWidths]);
 
   // Defaults: the original columns are visible and every template column is hidden.
   const defaultColumnVisibilityModel = useMemo((): GridColumnVisibilityModel => {
@@ -794,16 +896,117 @@ export default function List() {
     [defaultColumnVisibilityModel, listColumnVisibilityModel]
   );
 
+  // The order "Reset Order" restores: the checked columns first, in the default order (default
+  // columns, then the template columns in the order Settings -> Templates lists them), followed
+  // by the unchecked columns in the same default order.
+  const canonicalColumnOrder = useMemo((): string[] => {
+    const visible: string[] = [];
+    const hidden: string[] = [];
+    defaultFieldOrder.forEach((field) => {
+      (columnVisibilityModel[field] === false ? hidden : visible).push(field);
+    });
+    return [...visible, ...hidden];
+  }, [columnVisibilityModel, defaultFieldOrder]);
+
+  const isDefaultColumnOrder = useMemo(
+    () => effectiveColumnOrder.length === canonicalColumnOrder.length
+      && effectiveColumnOrder.every((field, index) => field === canonicalColumnOrder[index]),
+    [canonicalColumnOrder, effectiveColumnOrder]
+  );
+
+  // "Reset All" is only enabled when there is something to reset: a hidden/shown column, a
+  // custom order or a column the user sized.
+  const isDefaultColumnState = useMemo(
+    () => listColumnOrder.length === 0
+      && Object.keys(listColumnWidths).length === 0
+      && defaultFieldOrder.every((field) =>
+        (columnVisibilityModel[field] !== false)
+          === (defaultColumnVisibilityModel[field] !== false)),
+    [
+      columnVisibilityModel,
+      defaultColumnVisibilityModel,
+      defaultFieldOrder,
+      listColumnOrder,
+      listColumnWidths,
+    ]
+  );
+
+  // Moves a column up or down in "Manage columns". The Community DataGrid cannot reorder
+  // columns by dragging their headings, so this is the only way to change the order.
+  const moveColumn = useCallback(
+    (field: string, offset: number) => {
+      const order = [...effectiveColumnOrder];
+      const index = order.indexOf(field);
+      const target = index + offset;
+      if (index < 0 || target < 0 || target >= order.length) {
+        return;
+      }
+      order.splice(index, 1);
+      order.splice(target, 0, field);
+      applyColumnOrder(order);
+    },
+    [applyColumnOrder, effectiveColumnOrder]
+  );
+
+  const resetColumnOrder = useCallback(() => {
+    applyColumnOrder(canonicalColumnOrder);
+  }, [applyColumnOrder, canonicalColumnOrder]);
+
   const columnsManagementContextValue = useMemo(
-    () => ({ defaultColumnVisibilityModel }),
-    [defaultColumnVisibilityModel]
+    () => ({
+      moveColumn,
+      resetOrder: resetColumnOrder,
+      resetAll: resetListColumns,
+      isDefaultOrder: isDefaultColumnOrder,
+      isDefaultAll: isDefaultColumnState,
+    }),
+    [
+      isDefaultColumnOrder,
+      isDefaultColumnState,
+      moveColumn,
+      resetColumnOrder,
+      resetListColumns,
+    ]
   );
 
   const handleColumnVisibilityModelChange = useCallback(
     (model: GridColumnVisibilityModel) => {
+      // A column that is checked moves right behind the last visible column, so the checked
+      // columns stay grouped at the top of "Manage columns" and on the left of the grid.
+      // Unchecking never moves anything, which keeps a column easy to find and check again.
+      const newlyVisible = effectiveColumnOrder.filter(
+        (field) => model[field] !== false && columnVisibilityModel[field] === false
+      );
+      if (newlyVisible.length > 0) {
+        const moved = new Set(newlyVisible);
+        const order = effectiveColumnOrder.filter((field) => !moved.has(field));
+        let insertAt = 0;
+        order.forEach((field, index) => {
+          if (model[field] !== false) {
+            insertAt = index + 1;
+          }
+        });
+        order.splice(insertAt, 0, ...newlyVisible);
+        applyColumnOrder(order);
+      }
       setListColumnVisibilityModel(model);
     },
-    [setListColumnVisibilityModel]
+    [applyColumnOrder, columnVisibilityModel, effectiveColumnOrder, setListColumnVisibilityModel]
+  );
+
+  // Remembers the width of a column the user sized: by dragging a separator, by double
+  // clicking it, or through "Auto size all column headings" in the column menu.
+  const handleColumnWidthChange = useCallback(
+    (params: GridColumnResizeParams) => {
+      if (autoSizingRef.current) {
+        return;
+      }
+      setListColumnWidths({
+        ...useAppStore.getState().listColumnWidths,
+        [params.colDef.field]: Math.round(params.width),
+      });
+    },
+    [setListColumnWidths]
   );
 
   const visibleTemplateColumns = useMemo(
@@ -890,27 +1093,42 @@ export default function List() {
     });
   }, [rowsOfDataGrid, debouncedQuery]);
 
-  // Trigger auto-sizing when filtered rows change
+  // Auto-size the columns when the rows or the visible columns change, but never touch a
+  // column the user sized: those widths are restored from the configuration instead.
   useEffect(() => {
-    if (apiRef.current && filteredRows.length > 0) {
-      if (autosizeDebounceRef.current) {
-        clearTimeout(autosizeDebounceRef.current);
-      }
-      autosizeDebounceRef.current = setTimeout(() => {
-        if (apiRef.current) {
-          apiRef.current.autosizeColumns({
-            includeHeaders: true,
-            includeOutliers: true,
-          });
-        }
-      }, 200);
+    if (filteredRows.length === 0) {
+      return;
     }
+    if (autosizeDebounceRef.current) {
+      clearTimeout(autosizeDebounceRef.current);
+    }
+    autosizeDebounceRef.current = setTimeout(() => {
+      autosizeDebounceRef.current = undefined;
+      const api = apiRef.current;
+      if (!api) {
+        return;
+      }
+      const widths = useAppStore.getState().listColumnWidths;
+      const columns = api
+        .getVisibleColumns()
+        .map((column) => column.field)
+        .filter((field) => widths[field] === undefined);
+      if (columns.length === 0) {
+        return;
+      }
+      autoSizingRef.current = true;
+      void api
+        .autosizeColumns({ ...LIST_AUTOSIZE_OPTIONS, columns })
+        .finally(() => {
+          autoSizingRef.current = false;
+        });
+    }, 200);
     return () => {
       if (autosizeDebounceRef.current) {
         clearTimeout(autosizeDebounceRef.current);
       }
     };
-  }, [filteredRows, apiRef]);
+  }, [apiRef, columnVisibilityModel, filteredRows]);
 
   const openDialogJsonCode = useCallback(
     (file: string) => {
@@ -1031,7 +1249,15 @@ export default function List() {
         }}
       />
 
-      <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+      <Box
+        sx={
+          viewType === ViewType.List
+            // The List view scrolls inside the DataGrid so that the column headings stay
+            // pinned at the top and the horizontal scroll bar stays pinned at the bottom.
+            ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }
+            : { flex: 1, minHeight: 0, overflow: 'auto' }
+        }
+      >
       {fileToPropertyMaps.size === 0 ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
           <img src="images/bettermediainfo.png" alt={t('list.altNotMediaFiles')} />
@@ -1252,7 +1478,7 @@ export default function List() {
           )
         )
       ) : (
-        <Box sx={{ width: '100%', maxWidth: '100%', overflow: 'auto' }}>
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', width: '100%', maxWidth: '100%' }}>
           <ListColumnsManagementContext.Provider value={columnsManagementContextValue}>
             <DataGrid
               apiRef={apiRef}
@@ -1260,18 +1486,21 @@ export default function List() {
               columns={columnsOfDataGrid}
               columnVisibilityModel={columnVisibilityModel}
               onColumnVisibilityModelChange={handleColumnVisibilityModelChange}
-              slots={{ columnsManagement: ListColumnsManagement }}
+              onColumnWidthChange={handleColumnWidthChange}
+              slots={{
+                columnsManagement: ListColumnsManagement,
+                columnMenu: ListColumnMenu,
+              }}
               density="compact"
               disableRowSelectionOnClick
               hideFooter
-              autosizeOnMount
-              autosizeOptions={{
-                includeHeaders: true,
-                includeOutliers: true,
-              }}
-              autoHeight
+              autosizeOptions={LIST_AUTOSIZE_OPTIONS}
               sx={{
-                width: '100%',
+                // The grid is the only scrollable element of the List view: it fills the
+                // remaining height so that the headings stay on top and the horizontal
+                // scroll bar stays at the bottom while scrolling.
+                flex: 1,
+                minWidth: 0,
                 maxWidth: '100%',
                 '& .MuiDataGrid-columnHeader': {
                   padding: 0,

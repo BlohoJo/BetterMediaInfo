@@ -43,7 +43,15 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { useTranslation } from 'react-i18next';
 
 import appIconUrl from '../../src-tauri/icons/icon.png';
-import { APP_NAME, AUTHOR_NAME, AUTHOR_URL, GITHUB_URL } from '../lib/constants';
+import {
+  APP_NAME,
+  AUTHOR_NAME,
+  AUTHOR_URL,
+  GITHUB_URL,
+  FORK_AUTHOR_NAME,
+  FORK_AUTHOR_URL,
+  FORK_GITHUB_URL,
+} from '../lib/constants';
 import { useAppStore } from '../lib/store';
 
 const GRADIENT = 'linear-gradient(135deg, #6366f1 0%, #ec4899 100%)';
@@ -257,6 +265,57 @@ export default function About() {
                       }}
                     >
                       {GITHUB_URL}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </CardActionArea>
+            </Card>
+          </Stack>
+
+          {/* This build is a fork; mirror the rows above with the fork author and repository. */}
+          <Stack
+            direction="row"
+            spacing={2}
+            sx={{ width: '100%', alignItems: 'stretch' }}
+          >
+            <Card elevation={0} sx={{ ...infoCardSx, flexShrink: 0 }}>
+              <CardActionArea onClick={() => openUrl(FORK_AUTHOR_URL)} sx={{ height: '100%' }}>
+                <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Avatar sx={{ background: GRADIENT, width: 48, height: 48 }}>
+                    <PersonIcon />
+                  </Avatar>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="caption" color="text.secondary" sx={labelSx}>
+                      {t('about.fork')}
+                    </Typography>
+                    <Typography variant="h6" sx={{ lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                      {FORK_AUTHOR_NAME}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </CardActionArea>
+            </Card>
+
+            <Card elevation={0} sx={{ ...infoCardSx, flex: 1, minWidth: 0 }}>
+              <CardActionArea onClick={() => openUrl(FORK_GITHUB_URL)} sx={{ height: '100%' }}>
+                <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Avatar sx={{ bgcolor: '#24292f', width: 48, height: 48 }}>
+                    <GitHubIcon sx={{ color: '#fff' }} />
+                  </Avatar>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="caption" color="text.secondary" sx={labelSx}>
+                      {t('about.forkGithub')}
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {FORK_GITHUB_URL}
                     </Typography>
                   </Box>
                 </CardContent>
