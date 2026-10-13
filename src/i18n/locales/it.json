@@ -43,9 +43,13 @@
     "delete": "Elimina",
     "altNotMediaFiles": "Non file multimediali",
     "columnsManagement": {
-      "showAllWarning": "Stai per aggiungere un gran numero di colonne. Sei sicuro di volerlo fare? Per tornare alle impostazioni predefinite, fai clic su RESET",
+      "showAllWarning": "Stai per aggiungere un gran numero di colonne. Sei sicuro di volerlo fare? Per tornare alle impostazioni predefinite, fai clic su RESET ALL",
       "yes": "Sì",
-      "no": "No"
+      "no": "No",
+      "resetAll": "Reimposta tutto",
+      "resetOrder": "Reimposta ordine",
+      "moveUp": "Sposta su",
+      "moveDown": "Sposta giù"
     },
     "header": {
       "filePath": "Percorso file",
@@ -77,6 +81,9 @@
       "channels": "CH",
       "sampling": "Campionamento",
       "mode": "Modalità"
+    },
+    "columnMenu": {
+      "autosizeAll": "Adatta automaticamente tutte le colonne"
     }
   },
   "details": {
@@ -210,7 +217,8 @@
     "checkNewVersion": "Verifica aggiornamenti",
     "daily": "Ogni giorno",
     "weekly": "Ogni settimana",
-    "monthly": "Ogni mese"
+    "monthly": "Ogni mese",
+    "never": "Mai"
   },
   "extract": {
     "header": {
@@ -362,12 +370,14 @@
   "about": {
     "tagline": "Una moderna GUI desktop per MediaInfo",
     "mediaInfoLib": "MediaInfoLib",
-    "author": "Autore",
+    "author": "Autore originale",
     "github": "GitHub",
     "allStreams": "Tutti gli stream",
     "property": "Proprietà",
     "id": "ID",
-    "stream": "stream"
+    "stream": "stream",
+    "fork": "Fork",
+    "forkGithub": "Fork su Github"
   },
   "update": {
     "newVersionAvailable": "È disponibile una nuova versione {{version}}.",

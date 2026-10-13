@@ -23,7 +23,7 @@
     "welcomeTitle": "欢迎使用 BetterMediaInfo",
     "welcomeSubtitle": "用于检视媒体文件的现代桌面图形界面。",
     "introBetterMediaInfo": "使用快速、现代的界面查看任何媒体文件。一目了然地浏览视频、音频、图像和字幕轨道的流、属性和元数据。",
-    "introBatchMkvMerge": "\u4ee5\u7528\u6237\u53cb\u597d\u7684\u65b9\u5f0f\u6279\u91cf\u5904\u7406\u5a92\u4f53\u6587\u4ef6\u3002\u57fa\u4e8e MKVToolNix \u7684 mkvmerge \u6784\u5efa\u7684\u56fe\u5f62\u754c\u9762\u3002",
+    "introBatchMkvMerge": "以用户友好的方式批量处理媒体文件。基于 MKVToolNix 的 mkvmerge 构建的图形界面。",
     "introBatchMkvExtract": "一次从多个 .mkv 文件中提取轨道、章节和附件。基于 MKVToolNix 的 mkvextract 构建的批处理图形界面。",
     "introBDMaster": "使用现代图形界面检视蓝光光盘。一目了然地浏览光盘、播放列表、流、轨道和码率图表。",
     "viewOnGithub": "在 GitHub 查看",
@@ -43,9 +43,13 @@
     "delete": "删除",
     "altNotMediaFiles": "非媒体文件",
     "columnsManagement": {
-      "showAllWarning": "您即将添加大量列，确定要这样做吗？要恢复默认设置，请点击 RESET",
+      "showAllWarning": "您即将添加大量列，确定要这样做吗？要恢复默认设置，请点击 RESET ALL",
       "yes": "是",
-      "no": "否"
+      "no": "否",
+      "resetAll": "全部重置",
+      "resetOrder": "重置顺序",
+      "moveUp": "上移",
+      "moveDown": "下移"
     },
     "header": {
       "filePath": "文件路径",
@@ -77,6 +81,9 @@
       "channels": "CH",
       "sampling": "采样",
       "mode": "模式"
+    },
+    "columnMenu": {
+      "autosizeAll": "自动调整所有列宽"
     }
   },
   "details": {
@@ -210,7 +217,8 @@
     "checkNewVersion": "检查新版本",
     "daily": "每天",
     "weekly": "每周",
-    "monthly": "每月"
+    "monthly": "每月",
+    "never": "从不"
   },
   "extract": {
     "header": {
@@ -362,12 +370,14 @@
   "about": {
     "tagline": "现代化的 MediaInfo 桌面图形界面",
     "mediaInfoLib": "MediaInfoLib",
-    "author": "作者",
+    "author": "原作者",
     "github": "Github",
     "allStreams": "所有流",
     "property": "属性",
     "id": "ID",
-    "stream": "流"
+    "stream": "流",
+    "fork": "分支",
+    "forkGithub": "分支 Github 地址"
   },
   "update": {
     "newVersionAvailable": "新版本 {{version}} 已发布。",

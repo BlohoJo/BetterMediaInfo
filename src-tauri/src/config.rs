@@ -17,6 +17,7 @@
 
 use anyhow::{Error, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
@@ -209,11 +210,14 @@ impl Default for ConfigUpdate {
   }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub enum UpdateCheckInterval {
   Daily,
   Weekly,
   Monthly,
+  /// Never check for updates. The application neither contacts GitHub on start up nor on a
+  /// timer; the user has to use "Check for updates" in Settings explicitly.
+  Never,
 }
 
 impl Default for UpdateCheckInterval {
@@ -498,6 +502,8 @@ pub struct ConfigView {
   pub card: ConfigCardView,
   #[serde(default)]
   pub detail: ConfigDetailView,
+  #[serde(default)]
+  pub list: ConfigListView,
 }
 
 impl Default for ConfigView {
@@ -505,8 +511,26 @@ impl Default for ConfigView {
     Self {
       card: Default::default(),
       detail: Default::default(),
+      list: Default::default(),
     }
   }
+}
+
+/// Persisted state of the List view so that the columns the user picked, the order they
+/// arranged them in and the widths they set are restored on the next start up.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ConfigListView {
+  /// Column field -> visible. Fields that are absent fall back to the List view defaults
+  /// (the original columns are visible, the template columns are hidden).
+  #[serde(rename = "columnVisibility", default)]
+  pub column_visibility: HashMap<String, bool>,
+  /// Column fields in display order. Fields that are absent keep their default position.
+  #[serde(rename = "columnOrder", default)]
+  pub column_order: Vec<String>,
+  /// Column field -> width in pixels.
+  #[serde(rename = "columnWidths", default)]
+  pub column_widths: HashMap<String, f64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

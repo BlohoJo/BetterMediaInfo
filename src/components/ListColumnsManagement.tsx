@@ -15,8 +15,8 @@
  *   limitations under the License.
  */
 
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent, UIEvent } from 'react';
 import {
   Box,
   Button,
@@ -26,10 +26,14 @@ import {
   DialogContent,
   DialogContentText,
   FormControlLabel,
+  IconButton,
+  TextField,
+  Tooltip,
+  Typography,
 } from '@mui/material';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import {
-  GridColumnsManagement,
-  GridColumnsManagementProps,
   GridColumnVisibilityModel,
   gridColumnDefinitionsSelector,
   gridColumnVisibilityModelSelector,
@@ -39,50 +43,85 @@ import {
 import { useTranslation } from 'react-i18next';
 
 interface ListColumnsManagementContextValue {
-  /** The visibility model restored by RESET (default columns on, template columns off). */
-  defaultColumnVisibilityModel: GridColumnVisibilityModel;
+  /** Moves a column by `offset` positions in the List view column order. */
+  moveColumn: (field: string, offset: number) => void;
+  /** Restores the default column order, keeping the checked columns. */
+  resetOrder: () => void;
+  /** Restores the default columns, the default order and the default widths. */
+  resetAll: () => void;
+  /** True when the column order has not been customized. */
+  isDefaultOrder: boolean;
+  /** True when the columns, their order and their widths are all at their defaults. */
+  isDefaultAll: boolean;
 }
 
 export const ListColumnsManagementContext = createContext<ListColumnsManagementContextValue>({
-  defaultColumnVisibilityModel: {},
+  moveColumn: () => {},
+  resetOrder: () => {},
+  resetAll: () => {},
+  isDefaultOrder: true,
+  isDefaultAll: true,
 });
 
 const isVisible = (model: GridColumnVisibilityModel, field: string) => model[field] !== false;
 
+// The panel can list well over a thousand template columns, so the rows are windowed:
+// only the rows inside (and slightly around) the scrolled viewport are mounted.
+const ROW_HEIGHT = 32;
+const LIST_HEIGHT = 320;
+const OVERSCAN = 6;
+
 /**
- * Replacement for the DataGrid "Manage columns" panel body.
+ * Replacement for the DataGrid "Manage columns" panel.
  *
- * It reuses the stock search box and per-column checkboxes (columns are listed in definition
- * order, so the default columns come first and the template columns follow), but replaces the
- * footer so that:
- * - "Show/Hide All" is only checked when every column is visible (never indeterminate), and
- *   checking it asks for confirmation before adding a large number of columns.
- * - "Reset" restores the List view defaults instead of the grid's initial state.
+ * Compared to the stock panel it
+ * - lists the columns in the List view display order, which keeps the checked columns at the
+ *   top (default columns first, then the template columns in the order the user added them)
+ *   and leaves an unchecked column exactly where it was, so it is easy to check it again;
+ * - adds up/down buttons to every row to change the column order (the Community DataGrid
+ *   cannot reorder columns by dragging the column headings);
+ * - replaces the single "Reset" button with "Reset Order" and "Reset All";
+ * - only checks "Show/Hide All" when every column is visible, and asks for confirmation
+ *   before adding hundreds of columns at once;
+ * - renders only the rows that are scrolled into view.
  */
-export default function ListColumnsManagement(props: GridColumnsManagementProps) {
+export default function ListColumnsManagement() {
   const { t } = useTranslation();
   const apiRef = useGridApiContext();
-  const { defaultColumnVisibilityModel } = useContext(ListColumnsManagementContext);
+  const {
+    moveColumn,
+    resetOrder,
+    resetAll,
+    isDefaultOrder,
+    isDefaultAll,
+  } = useContext(ListColumnsManagementContext);
   const columns = useGridSelector(apiRef, gridColumnDefinitionsSelector);
   const columnVisibilityModel = useGridSelector(apiRef, gridColumnVisibilityModelSelector);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [scrollTop, setScrollTop] = useState(0);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const hideableColumns = useMemo(
     () => columns.filter((column) => column.hideable !== false),
     [columns]
   );
 
+  const rows = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    return hideableColumns
+      .map((column, index) => ({
+        field: column.field,
+        label: column.headerName ?? column.field,
+        index,
+      }))
+      .filter((row) => keyword.length === 0 || row.label.toLowerCase().includes(keyword));
+  }, [hideableColumns, search]);
+
   const allColumnsVisible = useMemo(
     () => hideableColumns.length > 0
       && hideableColumns.every((column) => isVisible(columnVisibilityModel, column.field)),
     [columnVisibilityModel, hideableColumns]
-  );
-
-  const isDefaultModel = useMemo(
-    () => hideableColumns.every((column) =>
-      isVisible(columnVisibilityModel, column.field)
-        === isVisible(defaultColumnVisibilityModel, column.field)),
-    [columnVisibilityModel, defaultColumnVisibilityModel, hideableColumns]
   );
 
   const setAllColumnsVisible = useCallback(
@@ -114,23 +153,114 @@ export default function ListColumnsManagement(props: GridColumnsManagementProps)
     setConfirmOpen(false);
   }, []);
 
-  const handleReset = useCallback(() => {
-    apiRef.current.setColumnVisibilityModel({ ...defaultColumnVisibilityModel });
-  }, [apiRef, defaultColumnVisibilityModel]);
+  const handleToggleColumn = useCallback(
+    (field: string, visible: boolean) => {
+      apiRef.current.setColumnVisibility(field, visible);
+    },
+    [apiRef]
+  );
+
+  const handleScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    setScrollTop(event.currentTarget.scrollTop);
+  }, []);
 
   // The columns panel closes on Escape; keep key presses inside the dialog from reaching it.
   const stopKeyPropagation = useCallback((event: KeyboardEvent) => {
     event.stopPropagation();
   }, []);
 
+  const firstRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const lastRow = Math.min(rows.length, Math.ceil((scrollTop + LIST_HEIGHT) / ROW_HEIGHT) + OVERSCAN);
+  const windowedRows = rows.slice(firstRow, lastRow);
+  const lastColumnIndex = hideableColumns.length - 1;
+
   return (
-    <>
-      <GridColumnsManagement {...props} disableShowHideToggle disableResetButton />
+    <Box sx={{ display: 'flex', flexDirection: 'column', width: 360, maxWidth: '100%' }}>
+      <Box sx={{ p: 1, pb: 0.5 }}>
+        <TextField
+          inputRef={searchRef}
+          size="small"
+          fullWidth
+          autoFocus
+          variant="outlined"
+          placeholder={apiRef.current.getLocaleText('columnsManagementSearchTitle') as string}
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setScrollTop(0);
+          }}
+        />
+      </Box>
+      <Box
+        onScroll={handleScroll}
+        sx={{ height: LIST_HEIGHT, overflowY: 'auto', overflowX: 'hidden', px: 0.5 }}
+      >
+        {rows.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ p: 1 }}>
+            {apiRef.current.getLocaleText('columnsManagementNoColumns')}
+          </Typography>
+        ) : (
+          <Box sx={{ position: 'relative', height: rows.length * ROW_HEIGHT }}>
+            {windowedRows.map((row, rowIndex) => (
+              <Box
+                key={row.field}
+                sx={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: (firstRow + rowIndex) * ROW_HEIGHT,
+                  height: ROW_HEIGHT,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <FormControlLabel
+                  sx={{ flex: 1, minWidth: 0, ml: 0, mr: 0 }}
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={isVisible(columnVisibilityModel, row.field)}
+                      onChange={(event) => handleToggleColumn(row.field, event.target.checked)}
+                    />
+                  }
+                  label={row.label}
+                  slotProps={{ typography: { variant: 'body2', noWrap: true, title: row.label } }}
+                />
+                <Tooltip title={t('list.columnsManagement.moveUp')}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      disabled={row.index === 0}
+                      aria-label={t('list.columnsManagement.moveUp')}
+                      onClick={() => moveColumn(row.field, -1)}
+                    >
+                      <ArrowUpwardIcon fontSize="inherit" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title={t('list.columnsManagement.moveDown')}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      disabled={row.index === lastColumnIndex}
+                      aria-label={t('list.columnsManagement.moveDown')}
+                      onClick={() => moveColumn(row.field, 1)}
+                    >
+                      <ArrowDownwardIcon fontSize="inherit" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Box>
+            ))}
+          </Box>
+        )}
+      </Box>
       <Box
         sx={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: 0.5,
           pt: 1,
           pr: 1,
           pb: 1,
@@ -140,7 +270,7 @@ export default function ListColumnsManagement(props: GridColumnsManagementProps)
         }}
       >
         <FormControlLabel
-          sx={{ ml: 0 }}
+          sx={{ ml: 0, mr: 0 }}
           control={
             <Checkbox
               size="small"
@@ -153,9 +283,14 @@ export default function ListColumnsManagement(props: GridColumnsManagementProps)
           label={apiRef.current.getLocaleText('columnsManagementShowHideAllText')}
           slotProps={{ typography: { variant: 'body2' } }}
         />
-        <Button size="small" onClick={handleReset} disabled={isDefaultModel}>
-          {apiRef.current.getLocaleText('columnsManagementReset')}
-        </Button>
+        <Box sx={{ display: 'flex', gap: 0.5 }}>
+          <Button size="small" onClick={resetOrder} disabled={isDefaultOrder}>
+            {t('list.columnsManagement.resetOrder')}
+          </Button>
+          <Button size="small" onClick={resetAll} disabled={isDefaultAll}>
+            {t('list.columnsManagement.resetAll')}
+          </Button>
+        </Box>
       </Box>
       <Dialog
         open={confirmOpen}
@@ -177,6 +312,6 @@ export default function ListColumnsManagement(props: GridColumnsManagementProps)
           </Button>
         </DialogActions>
       </Dialog>
-    </>
+    </Box>
   );
 }

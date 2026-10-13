@@ -18,7 +18,10 @@
 import { create } from 'zustand';
 import * as Protocol from './protocol';
 import { ViewType } from './types';
-import { getAbout, getConfig, getParameters } from './service';
+import { getAbout, getConfig, getParameters, setConfig as saveConfig } from './service';
+
+/** Debounce for writing the List view state back to the Tauri config file. */
+const LIST_VIEW_SAVE_DELAY = 500;
 
 interface DialogJsonCode {
   title: string;
@@ -61,6 +64,10 @@ interface AppState {
   // List view column visibility overrides (field -> visible). Fields that are
   // missing here fall back to the defaults computed by the List view.
   listColumnVisibilityModel: Record<string, boolean>;
+  // List view column display order. An empty array means "use the default order".
+  listColumnOrder: string[];
+  // List view column widths in pixels (field -> width), only for columns the user sized.
+  listColumnWidths: Record<string, number>;
 
   // Actions
   initConfig: () => Promise<void>;
@@ -85,7 +92,49 @@ interface AppState {
   setTabSettingsStatus: (status: Protocol.ControlStatus) => void;
   setViewType: (viewType: ViewType) => void;
   setListColumnVisibilityModel: (model: Record<string, boolean>) => void;
+  setListColumnOrder: (order: string[]) => void;
+  setListColumnWidths: (widths: Record<string, number>) => void;
+  resetListColumns: () => void;
   clearMediaFiles: () => void;
+}
+
+let listViewSaveTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Writes the List view state (visible columns, their order and their widths) back into the
+ * application config so that it survives a restart.
+ *
+ * The write is debounced because the state changes on every step while the user drags a
+ * column separator, and every write hits the file system through the Tauri backend.
+ */
+function persistListView() {
+  if (listViewSaveTimer) {
+    clearTimeout(listViewSaveTimer);
+  }
+  listViewSaveTimer = setTimeout(() => {
+    listViewSaveTimer = undefined;
+    const state = useAppStore.getState();
+    const config = state.config;
+    if (!config) {
+      // The config has not been loaded yet; there is nothing to merge the List view into.
+      return;
+    }
+    const newConfig: Protocol.Config = {
+      ...config,
+      view: {
+        ...config.view,
+        list: {
+          columnVisibility: state.listColumnVisibilityModel,
+          columnOrder: state.listColumnOrder,
+          columnWidths: state.listColumnWidths,
+        },
+      },
+    };
+    useAppStore.setState({ config: newConfig });
+    saveConfig(newConfig).catch((error) => {
+      console.error('Failed to save the List view configuration:', error);
+    });
+  }, LIST_VIEW_SAVE_DELAY);
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -106,12 +155,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   tabSettingsStatus: Protocol.ControlStatus.Hidden,
   viewType: ViewType.Card,
   listColumnVisibilityModel: {},
+  listColumnOrder: [],
+  listColumnWidths: {},
 
   // Actions
   initConfig: async () => {
     try {
       const config = await getConfig();
-      set({ config });
+      // Restore the List view exactly as the user left it.
+      const list = config?.view?.list;
+      set({
+        config,
+        listColumnVisibilityModel: list?.columnVisibility ?? {},
+        listColumnOrder: list?.columnOrder ?? [],
+        listColumnWidths: list?.columnWidths ?? {},
+      });
     } catch (error) {
       console.error('Failed to load config:', error);
     }
@@ -203,7 +261,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   setTabAboutStatus: (tabAboutStatus) => set({ tabAboutStatus }),
   setTabSettingsStatus: (tabSettingsStatus) => set({ tabSettingsStatus }),
   setViewType: (viewType) => set({ viewType }),
-  setListColumnVisibilityModel: (listColumnVisibilityModel) => set({ listColumnVisibilityModel }),
+  setListColumnVisibilityModel: (listColumnVisibilityModel) => {
+    set({ listColumnVisibilityModel });
+    persistListView();
+  },
+  setListColumnOrder: (listColumnOrder) => {
+    set({ listColumnOrder });
+    persistListView();
+  },
+  setListColumnWidths: (listColumnWidths) => {
+    set({ listColumnWidths });
+    persistListView();
+  },
+  resetListColumns: () => {
+    set({ listColumnVisibilityModel: {}, listColumnOrder: [], listColumnWidths: {} });
+    persistListView();
+  },
 
   clearMediaFiles: () => set({
     mediaFiles: [],

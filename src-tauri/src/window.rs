@@ -117,16 +117,18 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
   // Check for updates in background
   let update_state = app.state::<UpdateCheckState>();
   let result_arc = update_state.result.clone();
-  let interval_seconds: i64 = match cfg.update.check_interval {
-    config::UpdateCheckInterval::Daily => 86400,
-    config::UpdateCheckInterval::Weekly => 604800,
-    config::UpdateCheckInterval::Monthly => 2592000,
+  // `Never` disables the automatic check completely; the user can still check manually.
+  let interval_seconds: Option<i64> = match cfg.update.check_interval {
+    config::UpdateCheckInterval::Daily => Some(86400),
+    config::UpdateCheckInterval::Weekly => Some(604800),
+    config::UpdateCheckInterval::Monthly => Some(2592000),
+    config::UpdateCheckInterval::Never => None,
   };
   let now = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap()
     .as_secs() as i64;
-  if cfg.update.last_checked == 0 || now - cfg.update.last_checked > interval_seconds {
+  if interval_seconds.is_some_and(|seconds| cfg.update.last_checked == 0 || now - cfg.update.last_checked > seconds) {
     std::thread::spawn(move || {
       let check_result = std::panic::catch_unwind(|| controller::check_for_updates()).unwrap_or_else(|_| {
         log::error!("Update check panicked");
